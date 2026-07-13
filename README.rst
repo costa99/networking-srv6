@@ -11,7 +11,7 @@ exchange land in later phases.
 Install into an existing Neutron (stable/2026.1) via devstack by
 adding to ``local.conf``::
 
-    enable_plugin networking-srv6 https://github.com/<you>/networking-srv6 main
+    enable_plugin networking-srv6 https://github.com/<you>/networking-srv6 master
 
     [[post-config|/$Q_PLUGIN_CONF_FILE]]
     [ml2]
