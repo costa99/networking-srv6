@@ -34,10 +34,18 @@ neutron::
 
     sudo systemctl restart devstack@neutron-api
 
+Apply the DB schema (once, and again whenever a new migration lands)::
+
+    /opt/stack/data/venv/bin/neutron-db-manage \
+        --subproject networking-srv6 upgrade head
+
 After a code change (edit locally, push, then on the remote)::
 
     git -C /opt/stack/networking-srv6 pull
     sudo systemctl restart devstack@neutron-api
+
+If the change touched setup.cfg (entry points) also re-run
+``pip install -e`` before restarting.
 
 Verification
 ------------

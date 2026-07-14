@@ -4,9 +4,13 @@ networking-srv6
 Out-of-tree ML2 type driver that lets Neutron hand out IPv6 SRv6
 locators to provider/tenant networks instead of a VNI or VLAN tag.
 
-Status: phase 7.3.1 (control-plane only). No OVN mechanism-driver
+Status: phase 7.3.1 complete (control-plane only). Locator allocations
+are DB-backed (``srv6_locator_allocations``, alembic subproject
+``networking-srv6``): restart-safe, transactional with network
+create/delete, race-safe across API workers. No OVN mechanism-driver
 changes yet -- ``End.DT4``/``End.DT6`` programming and multi-node SID
-exchange land in later phases.
+exchange land in later phases (a temporary shim in ``ovn_compat.py``
+keeps the in-tree OVN driver from vetoing srv6 networks until then).
 
 Install into an existing Neutron (stable/2026.1) via devstack by
 adding to ``local.conf``::
