@@ -99,9 +99,9 @@ semantics anywhere.
 
 | Where | What |
 |-------|------|
-| `type_srv6.py` `SRv6TypeDriver.get_locator()` | Split into `get_function_id(segmentation_id)` (the offset, range-checked) and `build_sid(chassis_locator, segmentation_id)` (combines locator + fn into a full SID/128 or /80 per the chosen layout). Keep `get_locator()` as a deprecated alias until phase 3 removes callers. |
-| `type_srv6.py` config opts | Reinterpret: `locator_pool` = operator block chassis locators are carved from; add `function_bits` (width of the fn field, default 16) replacing the per-network use of `locator_prefix_length`. Validate `pool prefixlen + node_bits + function_bits ≤ 128`. |
-| `type_srv6.py` `get_mtu()` | Implement for real: `underlay_mtu − 40 (IPv6) − 8 (SRH base) − 16×(nsegs−1)`; with a single SID in the DA (reduced encap) overhead is 40. Source underlay MTU from a new `ml2_type_srv6.path_mtu` opt (mirror `ml2.path_mtu` / `type_tunnel.get_mtu()` logic). Needed before phase 4 or multi-node ping fragments/mysteriously drops. |
+| `type_srv6.py` `SRv6TypeDriver.get_locator()` | Split into `get_function_id(segmentation_id)` (the offset, range-checked) and `build_sid(chassis_locator, segmentation_id)` (combines locator + fn into a SID/80 per the chosen layout). **Done — deviation:** `get_locator()` was removed outright instead of kept as an alias (its only callers were in-repo; an alias would have preserved dead semantics). |
+| `type_srv6.py` config opts | Reinterpret: `locator_pool` = operator block chassis locators are carved from; add `function_bits` (width of the fn field, default 16) replacing the per-network use of `locator_prefix_length`. Validate `pool prefixlen + node_bits + function_bits ≤ 128`. **Done.** |
+| `type_srv6.py` `get_mtu()` | Implement for real: underlay MTU − 40 (outer IPv6, reduced encap). **Done — deviation:** reuses the existing `ml2.path_mtu` / `global_physnet_mtu` opts exactly like `type_tunnel.get_mtu()`, no new `ml2_type_srv6.path_mtu` opt. Needed before phase 4 or multi-node ping fragments/mysteriously drops. |
 | `constants.py` | Add SID-layout constants (fn bit-width, external_ids key names — see phase 3/4 for the keys). |
 | DB (`models.py`, alembic) | **No change** — the offset column already is the function ID. Only docstrings. |
 | `README.rst`, tests | Update semantics; extend `test_type_srv6.py` for `build_sid()` bit-layout edge cases (fn overflow, node overflow). |
@@ -152,9 +152,11 @@ mysql neutron -e "SELECT locator_offset, COUNT(*) c FROM \
 
 # 6. SID formation math (new build_sid) — pure-python check, no cloud needed
 python3 -c "
+from neutron.conf.plugins.ml2 import config as ml2_config
+ml2_config.register_ml2_plugin_opts()
 from networking_srv6.plugins.ml2.drivers.srv6 import type_srv6 as t
 d = t.SRv6TypeDriver()
-print(d.build_sid('fc00:0:1:2::/64', 5))"   # expect fc00:0:1:2:5::
+print(d.build_sid('fc00:0:1:2::/64', 5))"   # expect fc00:0:1:2:5::/80
 #    PASS: matches the §1.1 layout; overflow fn raises
 
 # 7. Pool exhaustion: set a tiny pool (e.g. 2 offsets) in local.conf,

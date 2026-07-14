@@ -13,3 +13,22 @@
 #    permissions and limitations under the License.
 
 TYPE_SRV6 = 'srv6'
+
+# SID layout (see docs/implementation-plan.md section 1.1). With the
+# default config the 128 SID bits split as:
+#
+#   | locator_pool /48 | node 16 bits | function 16 bits | zero |
+#   fc00:0:1           : <node>       : <fn>             ::
+#
+# The chassis locator (pool + node bits, locator_prefix_length total) is
+# operator-assigned per compute node; the function ID is what this
+# driver allocates per network; the full SID is only formed at send time
+# by build_sid(chassis_locator, function_id).
+DEFAULT_FUNCTION_BITS = 16
+
+# Encapsulation overhead in bytes. Reduced encap (a single SID carried
+# in the outer destination address) costs just the outer IPv6 header;
+# an explicit SRH adds its base header plus one slot per segment.
+IPV6_HEADER_LEN = 40
+SRH_BASE_LEN = 8
+SRH_SEGMENT_LEN = 16
