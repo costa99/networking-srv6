@@ -80,12 +80,18 @@ class SRv6TypeDriver(api.TypeDriver):
         return segment.get(api.SEGMENTATION_ID) is None
 
     def validate_provider_segment(self, segment):
-        segmentation_id = segment.get(api.SEGMENTATION_ID)
-        if segmentation_id is not None and segmentation_id not in (
-                self._allocations):
+        if segment.get(api.PHYSICAL_NETWORK) is not None:
             raise SRv6TypeDriverError(
-                reason='segmentation_id %s was not reserved via '
-                       'this driver' % segmentation_id)
+                reason='provider:physical_network is not valid for '
+                       'network type %s' % TYPE_SRV6)
+        segmentation_id = segment.get(api.SEGMENTATION_ID)
+        if segmentation_id is None:
+            return
+        if not 1 <= segmentation_id <= self._max_offset():
+            raise SRv6TypeDriverError(
+                reason='segmentation_id %s outside locator offset range '
+                       '1..%s for pool %s' %
+                (segmentation_id, self._max_offset(), self._pool))
 
     def reserve_provider_segment(self, context, segment, filters=None):
         segmentation_id = segment.get(api.SEGMENTATION_ID)
@@ -115,6 +121,9 @@ class SRv6TypeDriver(api.TypeDriver):
         # to whatever the underlay MTU is; real accounting happens
         # once the underlay/encap path exists (phase 7.3.2+).
         return 0
+
+    def _max_offset(self):
+        return (1 << (self._prefix_length - self._pool.prefixlen)) - 1
 
     def get_locator(self, segmentation_id):
         """Return the IPv6 locator (netaddr.IPNetwork) for a segment."""
