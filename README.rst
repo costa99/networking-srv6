@@ -16,7 +16,7 @@ adding to ``local.conf``::
     [[post-config|/$Q_PLUGIN_CONF_FILE]]
     [ml2]
     type_drivers = srv6,vxlan,geneve,vlan,flat,local
-    tenant_network_types = srv6
+    project_network_types = srv6
 
     [ml2_type_srv6]
     locator_pool = fc00:0:1::/48
