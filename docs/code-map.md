@@ -143,11 +143,78 @@ interop (the phase-5 FRR prerequisite).
   even a single flow-based port), with physical.c setting the SID per
   datapath.
 
-## Remaining for phase 2 (study days 8–10)
+## Days 8–9 close reading (2026-07-14)
 
-- Days 8–9: read `physical.c` output path + northd `join_datapaths`
-  external_ids copying (for option B above).
-- Day 10: write `docs/phase-7.3.2-design.md` deciding: Encap schema
-  addition, locator external_id name, fn source (option A vs B),
-  datapath strategy (a/b/c above — noting the netdev-only constraint
-  is now confirmed by experiment, not just source reading).
+### Flow-based tunnels: the mechanism srv6 rides on
+
+OVN main already ships per-flow tunnels (opt-in via `Open_vSwitch
+external_ids:ovn-enable-flow-based-tunnels`, checked in
+`is_flow_based_tunnels_enabled`, `controller/encaps.c:563`):
+
+- `create_flow_based_tunnels` (`encaps.c:666`): ONE port per encap
+  *type* advertised by this chassis, named `ovn<idx>-<type>`, options
+  `remote_ip=flow, local_ip=flow, key=flow`
+  (`flow_based_tunnel_ensure`, `encaps.c:583`). If `srv6` is a valid
+  encap type, the `ovn0-srv6` port comes for free.
+- `put_set_tunnel_ip` (`controller/physical.c:234`): per-flow
+  `set_field` on `MFF_TUN_IPV6_DST` — exactly the action that forms a
+  SID; called from `put_flow_based_encapsulation` (`physical.c:259`).
+- `put_flow_based_remote_port_redirect_overlay` (`physical.c:281`):
+  the per-remote-port flow builder. Picks the type via
+  `select_preferred_tunnel_type`, the destination via
+  `select_port_encap_ip(binding, type)`, the ofport via
+  `get_flow_based_tunnel_port(type, ctx->flow_tunnels)` (array indexed
+  by tunnel type). The srv6 diff concentrates here: compute
+  `remote_ip = <remote-locator>:<fn>::` instead of the Encap ip.
+
+### Tunnel type registry
+
+`enum chassis_tunnel_type` (`lib/ovn-util.h:366`): `VXLAN=0, GENEVE=1,
+TUNNEL_TYPE_MAX=2`, explicitly "higher number = more preferred"
+(`preferred_encap`, `encaps.c:373`). Adding `SRV6=2` makes srv6 win
+automatically when both chassis advertise it, and bumping
+`TUNNEL_TYPE_MAX` sizes the flow-tunnel array. Name mapping in
+`get_tunnel_type` (`lib/ovn-util.c:1023`).
+
+### chassis.c: Encap rows
+
+`chassis_build_encaps` (`controller/chassis.c:681`) creates one SB
+`Encap` row per (encap-ip × encap-type) with an options smap (`csum`,
+`is_default`). `ovn-encap-type` parsed at `chassis.c:325`. The locator
+addition: read `ovn-srv6-locator` (pattern: `get_evpn_vxlan_port`,
+`chassis.c:209`) and add `srv6_locator` to the srv6 Encap's options.
+
+### SB schema
+
+`Encap.type` is enum `["geneve", "vxlan"]` (ovn-sb.ovsschema, version
+21.10.0; stt already dropped upstream) — add `srv6` + version bump.
+
+### The fn-transport question is solved by an existing knob (option C)
+
+`Logical_Switch other_config:requested-tnl-key` lets NB request the
+datapath's SB `tunnel_key` (`northd/en-datapath-logical-switch.c:48`,
+honored via `candidate_sdp.requested_tunnel_key` in
+`northd/en-datapath-sync.c`). So `SRv6OVNClient` can simply request
+`tunnel_key == function ID` — **zero northd changes**, and
+`physical.c` forms the SID from `datapath->tunnel_key` it already has.
+This supersedes options A and B above. (Fallback/observability: copy
+`neutron:srv6-function` via `gather_external_ids`,
+`en-datapath-logical-switch.c:110` — the precedented seam that already
+copies `name2` and `dynamic-routing-vni`.)
+Caveat: requested keys share the space with auto-allocated ones
+(routers!) — collision handling is an open question in the design note.
+
+### No VNI on the wire: the RX problem
+
+`put_encapsulation` (`physical.c:151`) loads a 24-bit `MFF_TUN_ID`
+(datapath key; geneve additionally carries the port key in a TLV).
+**SRv6 has no key field at all** — the destination SID is the only
+identifier that survives the wire. So RX must map
+`tun_ipv6_dst == <local-locator>:<fn>::` to `MFF_LOG_DATAPATH` and
+recover the output port by inner-MAC lookup — exactly OVN's existing
+VXLAN "ramp" mode semantics (VNI-only, `is_ramp_switch`). Phase 3
+inherits vxlan-mode restrictions initially; encoding the port key in
+the SID's *argument* bits (`locator:fn:port`) is the RFC-8986-native
+upgrade path later.
+
+Day 10 output: `docs/phase-7.3.2-design.md`.

@@ -588,16 +588,24 @@ is the SRv6 sales pitch the thesis opened with.
 | northd router flows too deep for timebox | 6 | Design-on-paper gate (§8) |
 | Full plan ≈ 17 weeks of timeboxes vs 12–24 wk window | all | The descope ladder (§2) is the plan, not an afterthought: cut from the top (6 then 5), never from 1–4 |
 
-## 12. Open questions (carry into phase-2 design note)
+## 12. Open questions — status after the phase-2 study
 
-1. Exact OVS srv6 tunnel-port option names / whether remote SID can be set
-   per-flow (from OpenFlow) or only per-port — determines whether one
-   tunnel port per remote chassis suffices (fn in DA via flow action) or
-   one per (chassis, network).
-2. Does `tunnel_key` fit as the function ID (northd already allocates it
-   uniquely per datapath) — if yes, phase 3 needs no Neutron→northd fn
-   plumbing at all and `neutron:srv6-function` becomes advisory.
-3. Reduced encap (single SID in DA, no SRH) vs full SRH always — affects
-   MTU math and how impressive the tcpdump screenshots are.
-4. Chassis locator allocation: operator-set external_ids (this plan) vs
-   Neutron-allocated per-chassis rows (future work).
+All four were resolved by the study (see `phase-7.3.2-design.md`):
+
+1. **Answered.** Options: `remote_ip`, `srv6_segs` (max 6, per-port
+   only), `srv6_flowlabel`. Per-flow SIDs work via `remote_ip=flow` +
+   `set_field:tun_ipv6_dst`; OVN's flow-based tunnels (one port per
+   type) are the carrier → design note §1.4.
+2. **Answered, better than hoped.** `other_config:requested-tnl-key`
+   lets Neutron pin `tunnel_key == function ID` — zero northd changes
+   (design note §1.3; collision caveat §1.3a).
+3. **Answered by capture.** OVS always emits a full SRH: overhead is
+   64 bytes at one segment, not 40 — `get_mtu()` fix queued for
+   phase 3 (design note §1.7).
+4. **Decided for now.** Operator-set `ovn-srv6-locator` external_ids
+   (live on the box); Neutron-side chassis-locator allocation stays
+   future work.
+
+New open questions raised by the study live in design note §3
+(flow-based srv6 RX verification, tnl-key collisions, BFD, per-flow
+segment lists for TE).
