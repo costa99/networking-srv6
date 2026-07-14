@@ -132,15 +132,13 @@ class SRv6TypeDriver(api.TypeDriver):
         """Return the IPv6 locator (netaddr.IPNetwork) for a segment."""
         block_size = 1 << (128 - self._prefix_length)
         base = int(self._pool.network)
-        offset_addr = base + segmentation_id * block_size
-        locator = netaddr.IPNetwork(
-            '%s/%d' % (netaddr.IPAddress(offset_addr, version=6),
-                        self._prefix_length))
-        if offset_addr not in self._pool:
+        address = netaddr.IPAddress(base + segmentation_id * block_size,
+                                    version=6)
+        if address not in self._pool:
             raise SRv6TypeDriverError(
                 reason='locator_pool %s exhausted at offset %s' %
                 (self._pool, segmentation_id))
-        return locator
+        return netaddr.IPNetwork('%s/%d' % (address, self._prefix_length))
 
     def _segment_dict(self, segmentation_id):
         return {api.NETWORK_TYPE: TYPE_SRV6,
