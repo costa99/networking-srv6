@@ -61,8 +61,9 @@ Allocation semantics::
 
     openstack network delete demo-net prov-net
 
-Known risk: devstack's default OVN mechanism driver has never seen the
-``srv6`` network type. If ``network create`` fails with an OVN
-mechanism-driver error (not a type-driver error), capture the traceback
-from the journal -- that tells us whether phase 7.3.1 needs a minimal
-mechanism-driver stub earlier than planned.
+Note on OVN: the in-tree OVN mechanism driver hard-codes its supported
+network types and rejects ``srv6`` in ``create_network_precommit``
+(confirmed on this machine, 2026-07-14). ``ovn_compat.py`` works around
+it by patching ``_is_network_type_supported`` when the type driver
+initializes -- look for "Patched OVNMechanismDriver" in the journal.
+The shim goes away when the real OVN integration lands (phase 7.3.2+).

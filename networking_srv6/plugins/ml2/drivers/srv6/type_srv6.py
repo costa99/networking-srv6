@@ -32,6 +32,8 @@ from neutron_lib.plugins.ml2 import api
 from oslo_config import cfg
 from oslo_log import log
 
+from networking_srv6.plugins.ml2.drivers.srv6 import ovn_compat
+
 LOG = log.getLogger(__name__)
 
 srv6_opts = [
@@ -72,6 +74,7 @@ class SRv6TypeDriver(api.TypeDriver):
         return TYPE_SRV6
 
     def initialize(self):
+        ovn_compat.allow_srv6_network_type()
         LOG.info('SRv6TypeDriver initialized with locator_pool=%s '
                   'locator_prefix_length=%s',
                   self._pool, self._prefix_length)
