@@ -107,13 +107,16 @@ class SRv6TypeDriver(helpers.SegmentTypeDriver):
     def _max_offset(self):
         return (1 << (self._prefix_length - self._pool.prefixlen)) - 1
 
+    @db_api.retry_db_errors
     def _sync_allocations(self):
         """Pre-populate one allocation row per offset in the pool.
 
         Same shape as type_tunnel._sync_allocations: fast-exit when the
         table already matches the config, drop unallocated rows that
         fell out of the pool after a reconfiguration, bulk-insert the
-        missing ones.
+        missing ones. retry_db_errors absorbs the DBDuplicateEntry race
+        when several API workers sync concurrently at startup: the
+        loser retries and takes the fast-exit path.
         """
         offsets = set(range(1, self._max_offset() + 1))
         offset_col = self.model.get_segmentation_id()
