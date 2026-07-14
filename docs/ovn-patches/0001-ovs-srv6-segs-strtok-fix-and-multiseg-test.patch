@@ -1,0 +1,82 @@
+diff --git a/lib/netdev-vport.c b/lib/netdev-vport.c
+index d11269d..b8402f4 100644
+--- a/lib/netdev-vport.c
++++ b/lib/netdev-vport.c
+@@ -786,9 +786,11 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args, char **errp)
+                 }
+             }
+         } else if (!strcmp(node->key, "srv6_segs")) {
+-            err = parse_srv6_segs(node->value,
++            char *segs_copy = xstrdup(node->value);
++            err = parse_srv6_segs(segs_copy,
+                                   tnl_cfg.srv6_segs,
+                                   &tnl_cfg.srv6_num_segs);
++            free(segs_copy);
+ 
+             switch (err) {
+             case EINVAL:
+diff --git a/tests/system-traffic.at b/tests/system-traffic.at
+index 6256702..88f866a 100644
+--- a/tests/system-traffic.at
++++ b/tests/system-traffic.at
+@@ -10576,3 +10576,60 @@ dnl OVS will fail to send IPFIX packets because the target is localhost
+ dnl and the port is closed. Ignore the message it generates.
+ OVS_TRAFFIC_VSWITCHD_STOP(["/sending to collector failed/d"])
+ AT_CLEANUP
++AT_SETUP([datapath - ping over srv6 tunnel, multi-segment SRH via waypoint])
++OVS_CHECK_SRV6()
++
++OVS_TRAFFIC_VSWITCHD_START()
++
++ADD_NAMESPACES(at_ns0)
++ADD_NAMESPACES(at_ns1)
++NS_EXEC([at_ns0], [sysctl -w net.ipv6.conf.default.seg6_enabled=1])
++NS_EXEC([at_ns0], [sysctl -w net.ipv4.conf.default.forwarding=1])
++NS_EXEC([at_ns0], [sysctl -w net.ipv6.conf.default.forwarding=1])
++NS_EXEC([at_ns0], [sysctl -w net.ipv6.conf.all.seg6_enabled=1])
++NS_EXEC([at_ns0], [sysctl -w net.ipv4.conf.all.forwarding=1])
++NS_EXEC([at_ns0], [sysctl -w net.ipv6.conf.all.forwarding=1])
++
++dnl Underlay: same as the stock srv6 test, but two SIDs are routable
++dnl into at_ns0: fc00:b::1 (waypoint, kernel End) and fc00:a::1
++dnl (final SID, kernel End.DX4).
++ADD_BR([br-underlay])
++ADD_VETH(p0, at_ns0, br-underlay, "fc00::1/64", [], [], "nodad")
++AT_CHECK([ovs-ofctl add-flow br-underlay "actions=normal"])
++AT_CHECK([ip addr add dev br-underlay "fc00::100/64" nodad])
++AT_CHECK([ip link set dev br-underlay up])
++AT_CHECK([ip route add fc00:a::1/128 dev br-underlay via fc00::1])
++AT_CHECK([ip route add fc00:b::1/128 dev br-underlay via fc00::1])
++
++dnl srv6_segs is in traversal order and its first entry must equal
++dnl remote_ip, so the tunnel remote is the WAYPOINT, not the final SID.
++ADD_OVS_TUNNEL6([srv6], [br0], [at_srv6], [fc00:b::1], [10.100.100.100/24],
++                [options:srv6_segs="fc00:b::1,fc00:a::1"])
++AT_CHECK([ovs-vsctl set bridge br0 other_config:hwaddr=aa:55:aa:55:00:00])
++AT_CHECK([ip route add 10.1.1.0/24 dev br0 via 10.100.100.1])
++AT_CHECK([arp -s 10.100.100.1 aa:55:aa:55:00:01])
++AT_CHECK([ovs-ofctl add-flow br0 in_port=LOCAL,actions=output:at_srv6])
++AT_CHECK([ovs-ofctl add-flow br0 in_port=at_srv6,actions=mod_dl_dst:aa:55:aa:55:00:00,output:LOCAL])
++
++ADD_VETH_NS([at_ns0], [ovs-veth0], [10.1.1.2/24], [at_ns1], [ovs-veth1], [10.1.1.1/24])
++NS_CHECK_EXEC([at_ns0], [ip sr tunsrc set fc00:b::1])
++NS_CHECK_EXEC([at_ns0], [ip -6 route add fc00:b::1/128 encap seg6local action End dev p0])
++NS_CHECK_EXEC([at_ns0], [ip route add 10.100.100.0/24 encap seg6 mode encap segs fc00::100 dev p0])
++NS_CHECK_EXEC([at_ns0], [ip -6 route add fc00:a::1 encap seg6local action End.DX4 nh4 0.0.0.0 dev ovs-veth0])
++NS_CHECK_EXEC([at_ns1], [ip route add 10.100.100.0/24 via 10.1.1.2 dev ovs-veth1])
++
++NETNS_DAEMONIZE([at_ns0], [tcpdump -n -U -i p0 -w /tmp/srv6-handson.pcap ip6 proto 43], [tcpdump0.pid])
++AT_CHECK([sleep 1])
++
++OVS_WAIT_UNTIL([ip netns exec at_ns0 ping6 -c 1 fc00::100])
++
++dnl Overlay ping: OVS encaps with SRH [fc00:a::1, fc00:b::1] SL=1,
++dnl outer DA fc00:b::1; at_ns0 does End -> DA fc00:a::1 -> End.DX4
++dnl decap -> at_ns1. Reply re-encapsulated by the kernel toward OVS.
++NS_CHECK_EXEC([at_ns1], [ping -q -c 3 -i 0.3 -W 2 10.100.100.100 | FORMAT_PING], [0], [dnl
++3 packets transmitted, 3 received, 0% packet loss, time 0ms
++])
++AT_CHECK([sleep 1])
++
++OVS_TRAFFIC_VSWITCHD_STOP
++AT_CLEANUP

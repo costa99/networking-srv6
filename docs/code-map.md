@@ -106,12 +106,48 @@ not neutron's VNI. Consequence for the plan's open question #2:
   `ovn-sbctl set-connection role=ovn-controller ptcp:6642` +
   `ovs-vsctl set Open_vSwitch . external_ids:ovn-remote=tcp:127.0.0.1:6642`.
 
-## Remaining for phase 2 (study days 6–10)
+## Hands-on results (days 6–7, run 2026-07-14)
 
-- Days 6–7 hands-on: two-netns srv6 tunnel-port traffic on netdev
-  bridges; record which option shapes work per-flow; tcpdump the SRH.
+OVS's own srv6 system tests are the canonical topology: OVS srv6 port
+on one side, kernel seg6 (`End.DX4` + `encap seg6` routes) in a netns
+on the other — passing them also proves OVS<->kernel wire-format
+interop (the phase-5 FRR prerequisite).
+
+- `make check-system-userspace TESTSUITEFLAGS='-k srv6'` in
+  `/opt/stack/ovn/ovs`: **all pass** (needs `net-tools` for the legacy
+  `arp` command).
+- **Multi-segment SRH works**, proven by a new system test
+  (`docs/ovn-patches/0001-...patch`): OVS encapsulates with
+  `SRH [fc00:a::1, fc00:b::1] segleft=1`, outer DA = waypoint; kernel
+  `End` at the waypoint advances to the final SID; ping 3/3. Wire
+  capture: `docs/evidence/srv6-multiseg-waypoint.pcap`
+  (`RT6 len=4, segleft=1, last-entry=1`).
+- **Upstream OVS bug found and fixed** (in the same patch):
+  `parse_srv6_segs()` runs `strtok_r` in place on the smap value owned
+  by the config layer, so the first reconfigure truncates `srv6_segs`
+  to its first segment — silently, no log. One-line fix: parse an
+  `xstrdup` copy. Without the fix any multi-segment config degrades to
+  single-SID after a bridge reconfigure. **Upstream-worthy.**
+- **RX matching gotcha:** userspace tunnels match incoming packets by
+  (local, remote) outer pair. With `srv6_segs` via a waypoint, the
+  return traffic must arrive with outer src == the port's `remote_ip`
+  (= the first segment), or use `remote_ip=flow`. Asymmetric paths need
+  care in `encaps.c`/`physical.c`.
+- **Per-flow SIDs confirmed possible in principle:**
+  `netdev_srv6_build_header` validates `segs[0] == flow->tunnel.ipv6_dst`
+  and falls back to the flow's tunnel dst when no segs are configured —
+  so `remote_ip=flow` + OpenFlow `set_field:tun_ipv6_dst` gives
+  per-flow (per-network!) SIDs through ONE tunnel port. Segment lists
+  beyond the first hop remain per-port config. This settles open
+  question #1: phase 3 should use one srv6 port per remote chassis (or
+  even a single flow-based port), with physical.c setting the SID per
+  datapath.
+
+## Remaining for phase 2 (study days 8–10)
+
 - Days 8–9: read `physical.c` output path + northd `join_datapaths`
   external_ids copying (for option B above).
 - Day 10: write `docs/phase-7.3.2-design.md` deciding: Encap schema
   addition, locator external_id name, fn source (option A vs B),
-  datapath strategy (a/b/c above).
+  datapath strategy (a/b/c above — noting the netdev-only constraint
+  is now confirmed by experiment, not just source reading).
