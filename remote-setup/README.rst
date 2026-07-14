@@ -32,20 +32,19 @@ neutron::
     iniset $CONF ml2_type_srv6 locator_pool fc00:0:1::/48
     iniset $CONF ml2_type_srv6 locator_prefix_length 64
 
-    sudo systemctl restart devstack@q-svc devstack@neutron-api 2>/dev/null || \
-        sudo systemctl restart devstack@q-svc
+    sudo systemctl restart devstack@neutron-api
 
 After a code change (edit locally, push, then on the remote)::
 
     git -C /opt/stack/networking-srv6 pull
-    sudo systemctl restart devstack@q-svc
+    sudo systemctl restart devstack@neutron-api
 
 Verification
 ------------
 
 Driver loaded::
 
-    sudo journalctl -u devstack@q-svc -u devstack@neutron-api --since "-5 min" | grep -i srv6
+    sudo journalctl -u devstack@neutron-api --since "-5 min" | grep -i srv6
     # expect: SRv6TypeDriver initialized with locator_pool=fc00:0:1::/48 ...
 
 Allocation semantics::
